@@ -210,7 +210,10 @@ class MS_ApiServer(RequestHandler):
     def get(self, id):
         """ Get connection state with broker"""
         self.write(
-            {"Connection_state": str(client_pub.get_connection_state())})
+            {
+                "Connection_state": str(client_pub.get_connection_state()),
+                "AMQP_broker_endpoint": client_pub.server
+            })
 
     def delete(self, id):
         """Handles the behaviour of DELETE calls"""
