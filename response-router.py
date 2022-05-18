@@ -138,7 +138,7 @@ class Publisher(MessagingHandler):
                 body=message_body,
                 # , 'ref_timestamp_fc':self.json_to_parse["ref_timestamp_fc"]})
                 properties={'Car_ID': car_id_send})
-            message.durable = True
+            message.durable = False
             self.sender.send(message)
             # general_log.info(
             #     "In Response router it takes " +
@@ -275,3 +275,15 @@ if __name__ == '__main__':
     client_pub.send_topic = [os.environ['SEND_TOPIC']]
     qpid_thread.start()
     IOLoop.instance().start()
+
+
+"""
+Env vars required
+os.environ['LOG_LEVEL']
+os.environ['LOGGER_NAME'
+os.environ['MSG_BROKER_USER']
+os.environ['MSG_BROKER_PASSWORD']
+os.environ['API_PORT']
+os.environ['MSG_BROKER_ADDR']
+os.environ['SEND_TOPIC']
+"""
