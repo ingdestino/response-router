@@ -197,14 +197,21 @@ class MS_ApiServer(RequestHandler):
         rr_time_start = time.time()
         json_form = json.loads(self.request.body)
 
-        for ind_msg in json_form["messages"]:
-            client_pub.json_to_parse = ind_msg
-            client_pub.car_to_send = ind_msg["Car_ID"]
-            client_pub.sender_buffer.append(client_pub.details()[0])
-            client_pub.sender_buffer.append(client_pub.details()[1])
-            events.trigger(ApplicationEvent("my_custom_send"))
-        json_form["rr_process_time"] = (time.time()-rr_time_start)*1000
-        json_form["broker_conn_state"] = str(client_pub.get_connection_state())
+        try:
+            for ind_msg in json_form["messages"]:
+                client_pub.json_to_parse = ind_msg
+                client_pub.car_to_send = ind_msg["Car_ID"]
+                client_pub.sender_buffer.append(client_pub.details()[0])
+                client_pub.sender_buffer.append(client_pub.details()[1])
+                events.trigger(ApplicationEvent("my_custom_send"))
+            json_form["rr_process_time"] = (time.time()-rr_time_start)*1000
+            json_form["broker_conn_state"] =\
+                str(client_pub.get_connection_state())
+        except Exception as e:
+            general_log.error(
+                str(e) +
+                ": Error managing msg - probably client_pub not initialised.")
+            json_form["broker_conn_state"] = "-1"
         self.write(json_form)
         # client_pub.json_to_parse = json_form
         # client_pub.car_to_send = client_pub.json_to_parse["Car_ID"]
