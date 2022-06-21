@@ -1,8 +1,9 @@
 import os
 import json
+import sys
 import time
 import logging
-from threading import Thread
+import threading
 from proton import Message
 from proton.handlers import MessagingHandler
 from proton.reactor import ApplicationEvent, Container, EventInjector
@@ -100,8 +101,10 @@ class Publisher(MessagingHandler):
                     'topic://%s' % topic)
             self.connection = conn
             self.timeout_limit *= 2
-            general_log.error(
-                str(self.get_connection_state())+" connection state\n")
+            state = str(self.get_connection_state())
+            general_log.error(state + " connection state\n")
+            if state == 36:
+                execute_order_36()
 
         else:
             time.sleep(self.timeout_limit)
@@ -113,6 +116,10 @@ class Publisher(MessagingHandler):
                 self.sender = event.container.create_sender(
                     conn, 'topic://%s' % topic)
             self.connection = conn
+            state = str(self.get_connection_state())
+            general_log.error(state + " connection state\n")
+            if state == 36:
+                execute_order_36()
 
         return super().on_disconnected(event)
 
@@ -121,6 +128,7 @@ class Publisher(MessagingHandler):
             state = self.connection.state
             if state == 18:
                 self.timeout_limit = self.timeout_limit_min
+
         except Exception:
             general_log.error("Cannot get connection state")
             return 0
@@ -254,12 +262,108 @@ class LM_ApiServer(RequestHandler):
         self.write({'message': 'Item with id %s was deleted' % id})
 
 
+class RR_TestServer(RequestHandler):
+    def get(self, test_id):
+        """Handles the behaviour of GET calls from the local manager"""
+        if test_id == "ORDER36":
+            execute_order_36()
+        else:
+            general_log.info("test req: "+str(test_id))
+
+
 def make_app():
     urls = [
         (r"/api/item/from_ms_api/([^/]+)?", MS_ApiServer),
-        (r"/api/item/from_local_mgr_api/([^/]+)?", LM_ApiServer)
+        (r"/api/item/from_local_mgr_api/([^/]+)?", LM_ApiServer),
+        (r"/api/item/test/([^/]+)?", RR_TestServer)
     ]
     return Application(urls, debug=True)
+
+
+##############################################################################
+# TREACE THREAD ##############################################################
+##############################################################################
+
+
+class TraceThread(threading.Thread):
+    """ Simple thread class to kill threads using traces"""
+
+    def __init__(self, *args, **keywords):
+        threading.Thread.__init__(self, *args, **keywords)
+        self.killed = False
+
+    def start(self):
+        self.__run_backup = self.run
+        self.run = self.__run
+        threading.Thread.start(self)
+
+    def __run(self):
+        sys.settrace(self.globaltrace)
+        self.__run_backup()
+        self.run = self.__run_backup
+
+    def globaltrace(self, frame, why, arg):
+        if why == 'call':
+            return self.localtrace
+        else:
+            return None
+
+    def localtrace(self, frame, why, arg):
+        if self.killed:
+            if why == 'line':
+                raise SystemExit()
+        return self.localtrace
+
+    def kill(self):
+        self.killed = True
+
+##############################################################################
+# KILL OLD THREADS ###########################################################
+##############################################################################
+
+
+def kill_old_threads():
+    """ Kill older threads in case of config update"""
+    response = True
+    for i in threading.enumerate():
+        if i is not threading.main_thread() and isinstance(i, TraceThread):
+            i.kill()
+            response = False
+        else:
+            pass
+    return response
+
+######
+
+
+def execute_order_36():
+    general_log.warning("Execute Order 36!")
+    restart_rr()
+
+
+def restart_rr():
+
+    global client_pub
+    global events
+    global general_log
+
+    general_log.warning("restart_rr triggered")
+
+    general_log.info("killing all trace treads...")
+
+    while not kill_old_threads():
+        pass
+
+    general_log.info("all trace treads killed!")
+    client_pub = Publisher(os.environ['MSG_BROKER_ADDR'])
+    container = Container(client_pub)
+    events = EventInjector()
+    container.selectable(events)
+    qpid_thread = TraceThread(target=container.run)
+    client_pub.send_topic = [os.environ['SEND_TOPIC']]
+    qpid_thread.start()
+
+    general_log.info("qpid thread started")
 
 
 if __name__ == '__main__':
@@ -267,13 +371,16 @@ if __name__ == '__main__':
     app = make_app()
     app.listen(os.environ['API_PORT'])
     print("Started Response Router 1 REST Server")
-    client_pub = Publisher(os.environ['MSG_BROKER_ADDR'])
-    container = Container(client_pub)
-    events = EventInjector()
-    container.selectable(events)
-    qpid_thread = Thread(target=container.run)
-    client_pub.send_topic = [os.environ['SEND_TOPIC']]
-    qpid_thread.start()
+    client_pub = None
+    events = None
+    # client_pub = Publisher(os.environ['MSG_BROKER_ADDR'])
+    # container = Container(client_pub)
+    # events = EventInjector()
+    # container.selectable(events)
+    # qpid_thread = Thread(target=container.run)
+    # client_pub.send_topic = [os.environ['SEND_TOPIC']]
+    # qpid_thread.start()
+    restart_rr()
     IOLoop.instance().start()
 
 
